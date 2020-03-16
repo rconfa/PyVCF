@@ -1,3 +1,3 @@
 # VCFParser
-A parser for vcf bioinformatics file
+A parser for vcf bioinformatics file.
 Not ended yet!!
