@@ -1,0 +1,9 @@
+##fileformat=VCFv4.2
+##INFO=<ID=AC,Number=.,Type=Integer,Description="Alternate Allele Count">
+#CHROM  POS      ID         REF             ALT           QUAL  FILTER  INFO 
+2       321681   bnd               G G]17:198982] 6 PASS SVTYPE=BND
+2 321682 bnd  T ]13:123456]T 6 PASS SVTYPE=BND
+13 123456 bnd  C C[2:321682[ 6 PASS SVTYPE=BND
+13 123457 bnd  A [17:198983[A 6 PASS SVTYPE=BND
+17 198982 bnd  A A]2:321681] 6 PASS SVTYPE=BND
+17 198983 bnd  C [13:123457[C 6 PASS SVTYPE=BND    
