@@ -6,7 +6,11 @@ from dateutil.parser import parse # per controllare se una stringa è una data
 import logging, sys # per visualizzare le stampe di debug
 import gzip # per leggere i file gzip
 
-
+"""
+    LINE 330/331 E 371/372 se non si vuole che gli "id" di info e format di default
+    vengano sovrascritti se cambia il tipo vanno decommentate, non è ben specificato
+    nel file se sia possibile o meno..
+"""
 
 class VCFParser:
     # parametri da inizializzare 
@@ -327,8 +331,8 @@ class VCFParser:
     def __updateInfoDictionary(self,id,Type, num):
         # controllo se è già definito e se il tipo è lo stesso di quello già presente
         if (id in self.__dictInfo):
-            if (Type != self.__dictInfo[id] and Type != self.__dictInfo[id][0]): 
-                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + id + " id already define. Check type!")
+            #if (Type != self.__dictInfo[id] and Type != self.__dictInfo[id][0]): 
+                #sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + id + " id already define. Check type!")
             self.__dictInfo[id] = [Type, num]
             
         else: # se non è definito lo aggiungo come tipo
@@ -368,13 +372,14 @@ class VCFParser:
         # dato che puo averlo già definito per accettarlo doppio controllo anche 
         # se è uguale a quello in lista
         if (id in self.__dictFormat):
-            if (Type != self.__dictFormat[id] and Type != self.__dictFormat[id][0]): 
-                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + id + " id already define. Check type!")
+            #if (Type != self.__dictFormat[id] and Type != self.__dictFormat[id][0]): 
+            #    sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + id + " id already define. Check type!")
             self.__specialCheck(id,num)
             self.__dictFormat[id] = [Type, num]   
             
         else: # se non è definito lo aggiungo come tipo
             self.__dictFormat[id] = [Type, num]
+    
     
     """
         Controlli particolari sul campo id delle righe format
@@ -650,11 +655,11 @@ class VCFParser:
             sys.exit("Error at line: " + str(self.__actualLine + 1) + ",missing HEADER DATALINE!")
             
         if(self.__FormatDataAllowed == True):
-            regexFormatIfAllowed = "(((FORMAT))((\s)+([a-zA-Z0-9_])+)*){0,1}"
+            regexFormatIfAllowed = "((((\s)+FORMAT))((\s)+([a-zA-Z0-9_])+)*){0,1}"
         else:
             regexFormatIfAllowed = ""
         response = re.match("#CHROM(\s)+POS(\s)+ID(\s)+REF(\s)+ALT(\s)+"
-                            +"QUAL(\s)+FILTER(\s)+INFO(\s)+"
+                            +"QUAL(\s)+FILTER(\s)+INFO"
                             + regexFormatIfAllowed + "$"
                             , line, re.IGNORECASE)
         
@@ -741,8 +746,8 @@ class VCFParser:
         # se sono definiti anche dei sample
         if(self.__otherSampleDefine == True):
             for sampleLine in lst[9:]:
-                print(sampleLine)
-                # TODO: CONTROLLARE LE SAMPLE LINE
+                self.__myDataSample(sampleLine, lst[8],numDataAllowed)
+        
         
     """
         controlla che il campo chrome della riga dati sia well-formed e valido
@@ -848,6 +853,11 @@ class VCFParser:
         else: # case 1 and 4
             # splitto la stringa ad ogni , e poi confronto 
             lstSplitted = alt.split(",")
+            # controllo che la stringa non contenga doppioni non avrebbe senso
+            if len(lstSplitted) != len(set(lstSplitted)):
+                sys.exit("Error at line: " + str(self.__actualLine + 1) 
+                    + ", duplicate alt data are not allowed!")
+            
             numberOfDataAllowed = len(lstSplitted)
             for val in lstSplitted:
                 # controllo se è nel caso 1
@@ -1011,14 +1021,22 @@ class VCFParser:
         logging.debug("   __myDataInfo() parsing info: " + info)
         
         splittedInfo = info.split(";")
-       
+        lstDataFind = [] # salvo gli id che trovo cosi controllo che non ci siano doppioni
+        
+        
         for element in splittedInfo:
             lstRes = element.split("=") # splitto l'=
             # controllo se quella chiave è nel dizionario
             if(lstRes[0] in self.__dictInfo):
+                if(lstRes[0] in lstDataFind):
+                    sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                        + lstRes[0] + " id duplicate in info line! ") 
+                    
                 # keyValues è una lista [type, number]
                 # type = tipo del valore, number = occorrenze
                 keyValues = self.__dictInfo[lstRes[0]] # prendo i valori
+                
+                lstDataFind.append(lstRes[0]) # aggiungo l'elemento trovato
                 
                 # se il number è un numero controllo i suoi possibili valori tra 0..n
                 if(keyValues[1].isdigit()):
@@ -1037,8 +1055,8 @@ class VCFParser:
                         else:
                             sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
                                     + lstRes[0] + " doesn't have the correct number of value! ")
-                # se è uguale al . può avere quanti valori vuole ma devono tutti corrispondere
-                elif(keyValues[1] == "."):
+                # se è uguale al . o G può avere quanti valori vuole ma devono tutti corrispondere
+                elif(keyValues[1] == "." or keyValues[1] == "G"):
                     lstValues = lstRes[1].split(",") 
                     self.__ciclyChecker(lstValues, keyValues[0])
                 # se numero = A
@@ -1059,10 +1077,6 @@ class VCFParser:
                     else:
                         sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
                             + lstRes[0] + " doesn't have the correct number of value! ")       
-                # se numero = G
-                elif(keyValues[1] == "G"):
-                    # TODO!
-                    print("TODO")
 
             else:
                 sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
@@ -1137,6 +1151,13 @@ class VCFParser:
     """
     
     
+    """
+        Controlla che il campo format sia formato da
+        key_1:key_2:..:key_n
+        Ogni chiave deve essere definita nel campo id del tag FORMAT nelle righe 
+        di metadati.
+        Non ammetto key duplicate.
+    """
     def __myDataFormat(self, format):
         # debug printing
         logging.debug("   __myDataFormat() parsing format: " + format)
@@ -1149,9 +1170,91 @@ class VCFParser:
         
         splittedFormat = format.split(":")
        
+        # controllo che la stringa non contenga doppioni non avrebbe senso
+        if len(splittedFormat) != len(set(splittedFormat)):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) 
+                + ", duplicate format data are not allowed!")
+                
+                
         for element in splittedFormat:
             if(element not in self.__dictFormat):
                 sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
                     + element + "  is not a valid id for format line! ")  
+    
+    
+    """
+        controllo che i valori nei campi sample siano validi
+        number|val1:val2:valN (accettato anche number/val..)
+        
+        Il numero iniziale è compreso tra 0 e k (k = numeri di varianti alt, altNumber)
+        I valori sono descritti nei metadati format, per controllarli utilizzo 
+        il dato precedente (genoma) in cui sono riportati i campi id da cui ottenere
+        il tipo e il numero di valori ammessi
+    """
+    def __myDataSample(self, sample, genoma, altNumber):        
+        if("|" in sample): 
+            start = sample.find("|")  
+           
+        elif("/" in sample):  
+            start = sample.find("/")  
+        else:
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                + sample + " sample malformed!") 
+        
+        lstSplit = [sample[:start],sample[start+1:]]
+        # Controllo che il numero iniziale sia un numero
+        self.__checkValType(lstSplit[0], "INTEGER")   
+        # se è un numero controllo che sia compreso tra 0..altNumber
+        if(lstSplit[0] != "." and (int(lstSplit[0])<0 or int(lstSplit[0])>altNumber)):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + sample 
+                + " starting number out of range!") 
             
+        # se la parte iniziale della stringa è tutta a posto splitto i :
+        # cosi ottengo i singoli valori e controllo siano validi sfruttando 
+        # l'ordine degli id definito in genoma
+        lstSplitGenoma = genoma.split(":")
+        lstSplitSample = lstSplit[1].split(":")
+        
+        if(len(lstSplitGenoma) != len(lstSplitSample)):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + sample 
+                + " doesn't contains the correct number of value!")
             
+        # controllo tutti i valori 
+        for values,id in zip(lstSplitSample,lstSplitGenoma):
+            # splitto i valori divisi dalla virgola, nel caso ci fossere
+            lstSingleVal = values.split(",")
+            
+            # se il numero di valori ammesso è un numero controllo velocemente se
+            # è corretto
+            if(self.__dictFormat[id][1].isdigit()):
+                # controllo che il numero di valori sia corretto
+                if(len(lstSingleVal) != int(self.__dictFormat[id][1])):
+                    sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + sample 
+                             + " number of values not correct for " + id + " format id!")
+                else:
+                    self.__ciclyChecker(lstSingleVal, self.__dictFormat[id][0])
+            # se è uguale al . o G può avere quanti valori vuole ma devono tutti corrispondere
+            elif(self.__dictFormat[id][1] == "." or self.__dictFormat[id][1] == "G"):
+                self.__ciclyChecker(lstSingleVal, self.__dictFormat[id][0])
+            # se numero = A
+            elif(self.__dictFormat[id][1] == "A"):
+                if(len(lstSingleVal) == altNumber):
+                    # richiamo il metodo per il controllo
+                    self.__ciclyChecker(lstSingleVal, self.__dictFormat[id][0])
+                else:
+                    sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + sample 
+                            + " number of values not correct for " + id + " format id!")
+            # se numero = R
+            elif(self.__dictFormat[id][1] == "R"):
+                if(len(lstSingleVal) == altNumber+1):
+                    # richiamo il metodo per il controllo
+                    self.__ciclyChecker(lstSingleVal, self.__dictFormat[id][0])
+                else:
+                    sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + sample 
+                            + " number of values not correct for " + id + " format id!")       
+
+            else:
+                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + sample)   
+        
+
+        
