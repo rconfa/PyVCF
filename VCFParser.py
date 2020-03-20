@@ -1,9 +1,3 @@
-"""
-    TODO: file compresso
-    data alt
-    
-"""
-
 import re # import per l'utilizzo delle regex
 import sys # import per chiudere il programma
 from urllib.parse import urlparse  # import per controllare l'url
@@ -11,6 +5,7 @@ from pathlib import Path # import per prendere il path del file nell'url
 from dateutil.parser import parse # per controllare se una stringa è una data
 import logging, sys # per visualizzare le stampe di debug
 import gzip # per leggere i file gzip
+
 
 
 class VCFParser:
@@ -57,9 +52,15 @@ class VCFParser:
     # valori accettati per lo starti id del campo alt (metaline)
     __lstAltValueAccepted = ["DEL", "INS", "DUP", "INV", "CNV", "DUP:TANDEM", "DEL:ME", "INS:ME"]
     
+    # lunghezza della header line
     __lenHeaderDataLine = -1
     
+    # mi dice se è possibile inserire il campo format e dei sample nei dati
     __FormatDataAllowed = False
+    
+    # variabili che mi dicono se è definito il campo format e ulteriori sample ids
+    __formatDefine = False
+    __otherSampleDefine = False
     
     # valori del campo info (metaline)
     __dictInfo = {
@@ -69,7 +70,7 @@ class VCFParser:
         'MQ0': 'Integer', 'NS': 'Integer', 'SB': 'String', 'SOMATIC': 'Flag',
         'VALIDATED': 'Flag', '1000G': 'Flag',
     
-        # Keys used for structural variants
+        # structural variants
         'IMPRECISE': 'Flag', 'NOVEL': 'Flag', 'SVTYPE': 'String',
         'SVLEN': 'Integer', 'CIPOS': 'Integer', 'CIEND': 'Integer',
         'HOMLEN': 'Integer', 'HOMSEQ': 'String', 'BKPTID': 'String',
@@ -80,6 +81,19 @@ class VCFParser:
         'CICN': 'Integer', 'CICNADJ': 'Integer'
     }
    
+    # valori del campo format (metaline)
+    # PL, HQ, PS devono contenere almeno 2 valori
+    __dictFormat = {
+        'GT' : 'String', 'DP' : 'Integer', 'FT' : 'String',
+        'GL' : 'Float', 'GLE' : 'String', 'PL' : 'Integer', 
+        'GP' : 'Float', 'EC' : 'Integer', 'GQ' : 'Integer',
+        'HQ' : 'Integer', 'PS' : 'Integer', 'PQ' : 'Integer',
+        'MQ' : 'Integer'
+    }
+    
+    # mi dice se nelle format line è definito il campo gt
+    __gtPresent = False
+    
     # se nella riga dati, campo alt, ci sono dei breakends formati da
     # chrom:pos li aggiungo e li controllo a fine file perchè devo prima scorrere tutti
     # i chrom e le pos
@@ -106,8 +120,6 @@ class VCFParser:
         zipped = specifica se il file è in formato compresso oppure no
     """
     def parseFile(self):
-        # TODO: gestione della compressione
-        
         # apro e leggo tutto il contenuto del file
         if(self.zipped == False):
             with open(self.filename, 'r') as vcf_file:
@@ -315,7 +327,7 @@ class VCFParser:
     def __updateInfoDictionary(self,id,Type, num):
         # controllo se è già definito e se il tipo è lo stesso di quello già presente
         if (id in self.__dictInfo):
-            if (Type != self.__dictInfo[id]): 
+            if (Type != self.__dictInfo[id] and Type != self.__dictInfo[id][0]): 
                 sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + id + " id already define. Check type!")
             self.__dictInfo[id] = [Type, num]
             
@@ -331,7 +343,7 @@ class VCFParser:
         # debug printing
         logging.debug("   __myFormat() parsing line: " + line)       
 
-        response = re.match("FORMAT=<" + self.__id_pattern + ",\s*" + self.__num_patter + ",\s*" +
+        response = re.match("FORMAT=<" + self.__id_pattern + ",\s*Number=(?P<num>([0-9]+|.)),\s*" +
                          "Type=(?P<type>(Integer|Float|Character|String)),\s*" + 
                          self.__desc_pattern + ">$", line, re.IGNORECASE)
         
@@ -340,7 +352,47 @@ class VCFParser:
             sys.exit("Error at line: " + str(self.__actualLine + 1) + ", FORMAT malformed!")
             
         self.__FormatDataAllowed = True
+        self.__updateFormatDictionary(response.group("id"), response.group("type"), response.group("num"))
     
+    
+    """ 
+        controlla se il campo id è nel dizionario, se c'è già controlla che 
+        anche il type sia definito allo stesso modo!
+        Accetto format line multiple definite dall'utente
+        NEL DIZIONARIO SALVO ID = [TIPO, NUMERO]
+        in quanto poi nelle righe data mi serve sapere quanti valori possono essere
+        aggiunti per ciascun id!
+    """
+    def __updateFormatDictionary(self,id,Type, num):
+        # controllo se è già definito e se il tipo è lo stesso di quello già presente
+        # dato che puo averlo già definito per accettarlo doppio controllo anche 
+        # se è uguale a quello in lista
+        if (id in self.__dictFormat):
+            if (Type != self.__dictFormat[id] and Type != self.__dictFormat[id][0]): 
+                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " + id + " id already define. Check type!")
+            self.__specialCheck(id,num)
+            self.__dictFormat[id] = [Type, num]   
+            
+        else: # se non è definito lo aggiungo come tipo
+            self.__dictFormat[id] = [Type, num]
+    
+    """
+        Controlli particolari sul campo id delle righe format
+        GT = salvo se l'ho trovato, se c'è dovrà essere il primo in ogni format
+        PL, EC = num > 1
+        HQ = num deve essere 2
+    """  
+    def __specialCheck(self, id, num):
+        if(id == "GT"):
+            self.__gtPresent = True
+        elif(id == "HQ" and num!="2"):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                    + id + " number must be 2!")
+        elif ((id == "PL" or id == "EC") and num =="1"):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                    + id + " number must be >1!")
+            
+            
     """
        controllo la riga alt
        ##info=<ID=ID;ID,Description="description">
@@ -613,10 +665,36 @@ class VCFParser:
         elif(not response):
             sys.exit("Error at line: " + str(self.__actualLine + 1) + ", HEADER DATALINE malformed!")
         
+        # salvo la lunghezza dell'header per confrontarla con le righe data
         self.__lenHeaderDataLine = len(line.split(" "))
         
+        if("FORMAT" in line):
+            self.__formatDefine = True
+            # cerco dove inizia la parola format, aggiungo 7 per saltarla e prendere 
+            # tutte le parole dopo format
+            indexFormat = line.find("FORMAT") + 7
+            self.__checkNoDuplicateName(line[indexFormat:])
         
-    
+        
+    """
+        funzione che data una stringa controlla che non ci siano parole duplicate
+        Ogni parola deve essere divisa da un solo spazio
+        return: no duplicate
+        sys.exit: one or more word duplicate
+    """
+    def __checkNoDuplicateName(self,line):
+        # se la riga è vuota non c'è a
+        if(line != ""):
+            self.__otherSampleDefine = True
+            # splitto la stringa per ottenere una lista
+            listOfElems = line.split(" ")
+            # se le lunghezze sono diverse allora ci sono dei nomi duplicati
+            if len(listOfElems) != len(set(listOfElems)):
+                sys.exit("Error at line: " + str(self.__actualLine + 1) 
+                        + ", duplicate sample IDs are not allowed in header dataline!")
+        
+        
+        
     """ 
         funzione che serve per sostituire tutti i doppi spazi/tab con un singolo
         spazio
@@ -641,23 +719,36 @@ class VCFParser:
         CHROM POS ID REF ALT QUAL FILTER INFO
     """
     def __parseData(self,lst):
-        if (self.__lenHeaderDataLine != len(lst)):
+        lst_len = len(lst)
+        if (self.__lenHeaderDataLine > lst_len):
             sys.exit("Error at line: " + str(self.__actualLine + 1) + ", missing same data!")
-        
-        self.__myChrom(lst[0])
-        self.__myPos(lst[1])
-        self.__myId(lst[2])
-        self.__myRef(lst[3])
+        elif (self.__lenHeaderDataLine < lst_len):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", too much data!")
+            
+        # controllo tutti i campi fissi, devono esserci per forza!!!
+        self.__myDataChrom(lst[0])
+        self.__myDataPos(lst[1])
+        self.__myDataId(lst[2])
+        self.__myDataRef(lst[3])
         numDataAllowed = self.__myDataAlt(lst[4])
-        self.__myQual(lst[5])
+        self.__myDataQual(lst[5])
         self.__myDataFilter(lst[6])
         self.__myDataInfo(lst[7],numDataAllowed)
+        
+        # se è definito il campo format
+        if(self.__formatDefine == True):
+            self.__myDataFormat(lst[8])
+        # se sono definiti anche dei sample
+        if(self.__otherSampleDefine == True):
+            for sampleLine in lst[9:]:
+                print(sampleLine)
+                # TODO: CONTROLLARE LE SAMPLE LINE
         
     """
         controlla che il campo chrome della riga dati sia well-formed e valido
         
     """   
-    def __myChrom(self,chrom):
+    def __myDataChrom(self,chrom):
         # debug printing
         logging.debug("   __myChrom() parsing chrom: " + chrom)
         
@@ -676,12 +767,13 @@ class VCFParser:
             self.__lstChromValue.append(chrom)
             self.__lastPosValue = -1  
         
+        
     """
         controlla che il campo pos della riga dati sia well-formed e valido
         I campi pos devono essere in ordine crescente, quindi confronto il valore
         che trovo con il precedente
     """      
-    def __myPos(self,pos):
+    def __myDataPos(self,pos):
         # debug printing
         logging.debug("   __myPos() parsing pos: " + pos)
         
@@ -706,7 +798,7 @@ class VCFParser:
         controlla che il campo id della riga dati sia well-formed e valido
         
     """   
-    def __myId(self,id):
+    def __myDataId(self,id):
         # debug printing
         logging.debug("   __myId() parsing id: " + id)
         
@@ -721,7 +813,7 @@ class VCFParser:
         controlla che il campo ref della riga dati sia well-formed e valido
         
     """   
-    def __myRef(self,ref):
+    def __myDataRef(self,ref):
         # debug printing
         logging.debug("   __myRef() parsing ref: " + ref)
         
@@ -805,7 +897,6 @@ class VCFParser:
         return numberOfDataAllowed # mi serve sapere da quanti valori è composto il campo alt per gestire il campo data
     
     
-    
     """
         prova a matchare la stringa con A,c,g,t,n,.,*
     """     
@@ -816,6 +907,7 @@ class VCFParser:
             return True
         
         return False
+        
         
     """
         controllo che la __lstBreakendsValue sia del tipo chromVal:PosVal
@@ -831,11 +923,12 @@ class VCFParser:
             elif(values[0] not in self.__lstChromValue or values[1] not in self.__lstPosValue):
                 sys.exit("Error at line: " + str(int(couple[1]) + 1) + ", ALT breakends value not valid!")
     
+    
     """
         controlla che il campo qual della riga dati sia well-formed e valido
         
     """   
-    def __myQual(self,qual):
+    def __myDataQual(self,qual):
         # debug printing
         logging.debug("   __myQual() parsing qual: " + qual)
         
@@ -971,6 +1064,10 @@ class VCFParser:
                     # TODO!
                     print("TODO")
 
+            else:
+                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                        + lstRes[0] + " is not a valid id for info line! ")   
+        
 
     """    
         controlla che la variabile passata in input sia del tipo richiesto!
@@ -1027,3 +1124,34 @@ class VCFParser:
     def __ciclyChecker(self, lstValues, type):    
         for val in lstValues:
             self.__checkValType(val, type)
+            
+        """
+        controlla il campo format della riga dati ogni campo è formato da
+        key_1:key_2:...:key_n
+        Ogni chiave è il campo id di una format metaline
+        Se la chiave GT è presente deve PER FORZA essere la prima!
+        
+        R = altNumber + 1
+        A = altNumber
+        G = ????
+    """
+    
+    
+    def __myDataFormat(self, format):
+        # debug printing
+        logging.debug("   __myDataFormat() parsing format: " + format)
+        
+        # Se gt è presente nel mio dizionario allora
+        # deve essere il primo valore di ogni format data
+        if(self.__gtPresent == True and format.startswith("GT:") == False):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                    + " it must start with GT:! ")
+        
+        splittedFormat = format.split(":")
+       
+        for element in splittedFormat:
+            if(element not in self.__dictFormat):
+                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
+                    + element + "  is not a valid id for format line! ")  
+            
+            
