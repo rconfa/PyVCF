@@ -18,7 +18,7 @@ class VCFParser:
     zipped = True
     
     # Definisco i pattern per le regex comuni come privati 
-    __general_match = "[a-zA-Z0-9_]+"
+    __general_match = "[a-zA-Z0-9_.]+"
     __id_pattern = "ID=(?P<id>" + __general_match + ")"
     __desc_pattern = "Description=\"[^\"]+\""
     __num_patter = "Number=(?P<num>([0-9]+|A|R|G|.))"
@@ -54,7 +54,7 @@ class VCFParser:
     
     
     # valori accettati per lo starti id del campo alt (metaline)
-    __lstAltValueAccepted = ["DEL", "INS", "DUP", "INV", "CNV", "DUP:TANDEM", "DEL:ME", "INS:ME"]
+    __lstAltValueAccepted = ["DEL", "INS", "DUP", "INV", "CN", "DUP:TANDEM", "DEL:ME", "INS:ME"]
     
     # lunghezza della header line
     __lenHeaderDataLine = -1
@@ -433,7 +433,7 @@ class VCFParser:
             sys.exit("Error at line: " + str(self.__actualLine + 1) + ", ALT ID malformed!")
         
         # se l'id è valido ed è composto da CNV stampo un warning
-        if (idString.startswith("CNV")):
+        if (idString.startswith("CN")):
             print("Warning! At line: " +  str(self.__actualLine + 1) + 
                   " CNV category should not be used when a more specific category can be applied")
         self.__lstIdAltValue.append("<" + response.group("id") +">")    
@@ -474,8 +474,7 @@ class VCFParser:
         # debug printing
         logging.debug("   __myContig() parsing line: " + line)        
         
-        response = re.match("CONTIG=<" + self.__id_pattern + ",\s*" + "length=[0-9]+" 
-                             + "(,(\s)*(.*))*>$", line, re.IGNORECASE)
+        response = re.match("CONTIG=<" + self.__id_pattern + "(,(\s)*(.*))*>$", line, re.IGNORECASE)
         
         # se non è well-formed stampo errore
         if (not response):
@@ -807,11 +806,13 @@ class VCFParser:
         # debug printing
         logging.debug("   __myId() parsing id: " + id)
         
-        response = re.match('(([a-z0-9]+$)|(.$))', id, re.IGNORECASE)
+        splitId = id.split(";")
         
-        # se non è well-formed stampo errore
-        if (not response):
-            sys.exit("Error at line: " + str(self.__actualLine + 1) + ", ID malformed!")
+        for singleSplit in splitId:
+            response = re.match('(([a-z0-9_.]+$)|(.$))', singleSplit, re.IGNORECASE)
+            # se non è well-formed stampo errore
+            if (not response):
+                sys.exit("Error at line: " + str(self.__actualLine + 1) + ", ID malformed!")
 
 
     """
@@ -843,6 +844,7 @@ class VCFParser:
         logging.debug("   __myDataAlt() parsing dataAlt: " + alt)
         
         numberOfDataAllowed = 1
+        """
         # controllo se sono nel caso due
         if(alt.startswith("<")):
             if(alt in self.__lstIdAltValue == False):
@@ -851,15 +853,24 @@ class VCFParser:
         elif(alt == "."): # case 2
             return numberOfDataAllowed
         else: # case 1 and 4
-            # splitto la stringa ad ogni , e poi confronto 
-            lstSplitted = alt.split(",")
-            # controllo che la stringa non contenga doppioni non avrebbe senso
-            if len(lstSplitted) != len(set(lstSplitted)):
-                sys.exit("Error at line: " + str(self.__actualLine + 1) 
-                    + ", duplicate alt data are not allowed!")
+        """
+        # splitto la stringa ad ogni , e poi confronto 
+        lstSplitted = alt.split(",")
+        # controllo che la stringa non contenga doppioni non avrebbe senso
+        if len(lstSplitted) != len(set(lstSplitted)):
+            sys.exit("Error at line: " + str(self.__actualLine + 1) 
+                + ", duplicate alt data are not allowed!")
+        
+        numberOfDataAllowed = len(lstSplitted)
+        for val in lstSplitted:
             
-            numberOfDataAllowed = len(lstSplitted)
-            for val in lstSplitted:
+            if(val.startswith("<")):
+                if(val in self.__lstIdAltValue == False):
+                    sys.exit("Error at line: " + str(self.__actualLine + 1) 
+                            + ", ALT malformed! No value id defineds")
+            elif(alt == "."):
+                continue
+            else:
                 # controllo se è nel caso 1
                 response = self.__matchAltBaseString(val)
                 
@@ -1102,7 +1113,7 @@ class VCFParser:
                     + val + " must be a float value!")          
         # se è una stringa la matcho con una regex
         if(val != "." and type == "STRING"):
-            response = re.match('[a-z0-9_]+', val, re.IGNORECASE)
+            response = re.match('[^;]+', val, re.IGNORECASE)
             
             if(not response):
                 sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
@@ -1164,9 +1175,9 @@ class VCFParser:
         
         # Se gt è presente nel mio dizionario allora
         # deve essere il primo valore di ogni format data
-        if(self.__gtPresent == True and format.startswith("GT:") == False):
+        if(self.__gtPresent == True and format.startswith("GT") == False):
             sys.exit("Error at line: " + str(self.__actualLine + 1) + ", " 
-                    + " it must start with GT:! ")
+                    + " it must start with GT! ")
         
         splittedFormat = format.split(":")
        
