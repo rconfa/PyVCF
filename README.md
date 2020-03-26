@@ -1,5 +1,5 @@
 # VCFParser
-This project was a VCFv4.2 parser for Python developed for the exam of the course "Bioinformatics".
+This project is a VCFv4.2 Python parser developed for the exam of the course "Bioinformatics".
 >Project's specifications are taken from [samtools](https://github.com/samtools/hts-specs) version 4.2.
 
 A vcf file is used to specifies the format of a text file used in bioinformatics for storing gene sequence variations.
